@@ -1,0 +1,30 @@
+[
+  {
+    "ParameterKey": "Environment",
+    "ParameterValue": "production"
+  },
+  {
+    "ParameterKey": "DomainName",
+    "ParameterValue": "boards.boxie.ai"
+  },
+  {
+    "ParameterKey": "InstanceType",
+    "ParameterValue": "t3.large"
+  },
+  {
+    "ParameterKey": "DBInstanceType",
+    "ParameterValue": "db.t3.medium"
+  },
+  {
+    "ParameterKey": "KeyPairName",
+    "ParameterValue": "planka-production-keypair"
+  },
+  {
+    "ParameterKey": "SSHLocation",
+    "ParameterValue": "0.0.0.0/0"
+  },
+  {
+    "ParameterKey": "AdminEmail",
+    "ParameterValue": "admin@boxie.ai"
+  }
+]

@@ -1,0 +1,69 @@
+version: 2.1
+
+orbs:
+  aws-cli: circleci/aws-cli@3.1
+
+parameters:
+  deploy_environment:
+    type: enum
+    default: "staging"
+    enum: ["production", "staging", "development"]
+
+commands:
+  deploy-cloudformation-stack:
+    description: "Deploy CloudFormation stack for Planka"
+    parameters:
+      environment:
+        type: string
+        default: << pipeline.parameters.deploy_environment >>
+    steps:
+      - run:
+          name: "Create CloudFormation stack"
+          command: |
+            STACK_NAME="planka-<< parameters.environment >>"
+
+            # Check if stack exists
+            if aws cloudformation describe-stacks --stack-name $STACK_NAME > /dev/null 2>&1; then
+              echo "Stack exists, updating..."
+              aws cloudformation update-stack \
+                --stack-name $STACK_NAME \
+                --template-body file://../deploy-aws/template.yaml \
+                --parameters file://../deploy-aws/parameters-<< parameters.environment >>.json \
+                --capabilities CAPABILITY_NAMED_IAM || echo "No updates to be performed"
+            else
+              echo "Stack does not exist, creating..."
+              aws cloudformation create-stack \
+                --stack-name $STACK_NAME \
+                --template-body file://../deploy-aws/template.yaml \
+                --parameters file://../deploy-aws/parameters-<< parameters.environment >>.json \
+                --capabilities CAPABILITY_NAMED_IAM
+
+              aws cloudformation wait stack-create-complete --stack-name $STACK_NAME
+            fi
+
+            # Get outputs from the stack
+            aws cloudformation describe-stacks \
+              --stack-name $STACK_NAME \
+              --query "Stacks[0].Outputs" \
+              --output table
+
+jobs:
+  deploy:
+    docker:
+      - image: cimg/python:3.11
+    steps:
+      - checkout
+      - aws-cli/setup:
+          profile-name: default
+      - deploy-cloudformation-stack
+
+workflows:
+  version: 2
+  deploy-workflow:
+    jobs:
+      - deploy:
+          context: aws-prod
+          filters:
+            branches:
+              only:
+                - master # Deploy when changes are pushed to master branch

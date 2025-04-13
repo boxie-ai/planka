@@ -1,0 +1,358 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'CloudFormation template for Planka deployment'
+
+Parameters:
+  Environment:
+    Description: Environment name
+    Type: String
+    Default: staging
+    AllowedValues: [production, staging, development]
+  
+  DomainName:
+    Description: Domain name for Planka (e.g., boards.boxie.ai)
+    Type: String
+    Default: boards.boxie.ai
+  
+  InstanceType:
+    Description: EC2 instance type
+    Type: String
+    Default: t3.medium
+    AllowedValues: [t3.small, t3.medium, t3.large]
+  
+  DBInstanceType:
+    Description: RDS instance type
+    Type: String
+    Default: db.t3.small
+    AllowedValues: [db.t3.micro, db.t3.small, db.t3.medium]
+  
+  KeyPairName:
+    Description: EC2 Key Pair name
+    Type: AWS::EC2::KeyPair::KeyName
+  
+  SSHLocation:
+    Description: IP address range that can SSH to the EC2 instance
+    Type: String
+    Default: 0.0.0.0/0
+    
+  AdminEmail:
+    Description: Admin email for Planka
+    Type: String
+    Default: admin@example.com
+
+Resources:
+  # VPC and Network Resources
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${Environment}-planka-vpc
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub ${Environment}-planka-igw
+
+  InternetGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+
+  PublicSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select [0, !GetAZs '']
+      CidrBlock: 10.0.1.0/24
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${Environment}-planka-public-subnet-1
+
+  PublicSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select [1, !GetAZs '']
+      CidrBlock: 10.0.2.0/24
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${Environment}-planka-public-subnet-2
+
+  PrivateSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select [0, !GetAZs '']
+      CidrBlock: 10.0.3.0/24
+      Tags:
+        - Key: Name
+          Value: !Sub ${Environment}-planka-private-subnet-1
+
+  PrivateSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select [1, !GetAZs '']
+      CidrBlock: 10.0.4.0/24
+      Tags:
+        - Key: Name
+          Value: !Sub ${Environment}-planka-private-subnet-2
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub ${Environment}-planka-public-rt
+
+  PublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: InternetGatewayAttachment
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  PublicSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet1
+      RouteTableId: !Ref PublicRouteTable
+
+  PublicSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet2
+      RouteTableId: !Ref PublicRouteTable
+
+  # Security Groups
+  WebServerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for Planka web server
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: !Ref SSHLocation
+
+  DatabaseSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for Planka database
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          SourceSecurityGroupId: !Ref WebServerSecurityGroup
+
+  # Database
+  DBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: Subnet group for Planka DB
+      SubnetIds:
+        - !Ref PrivateSubnet1
+        - !Ref PrivateSubnet2
+
+  PlankaDB:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      DBName: planka
+      Engine: postgres
+      EngineVersion: '14.8'
+      DBInstanceClass: !Ref DBInstanceType
+      AllocatedStorage: 20
+      StorageType: gp2
+      MasterUsername: planka
+      MasterUserPassword: !Join ['', ['{{resolve:secretsmanager:', !Ref PlankaDBSecret, ':SecretString:password}}' ]]
+      VPCSecurityGroups:
+        - !GetAtt DatabaseSecurityGroup.GroupId
+      DBSubnetGroupName: !Ref DBSubnetGroup
+      MultiAZ: false
+      PubliclyAccessible: false
+      BackupRetentionPeriod: 7
+      DeletionProtection: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${Environment}-planka-db
+
+  PlankaDBSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Sub ${Environment}/planka/db-credentials
+      GenerateSecretString:
+        SecretStringTemplate: '{"username": "planka"}'
+        GenerateStringKey: password
+        PasswordLength: 16
+        ExcludeCharacters: '"@/\'
+
+  # EC2 Instance
+  PlankaEC2Instance:
+    Type: AWS::EC2::Instance
+    DependsOn: PlankaDB
+    Properties:
+      InstanceType: !Ref InstanceType
+      ImageId: ami-0261755bbcb8c4a84  # Amazon Linux 2023 (adjust for your region)
+      KeyName: !Ref KeyPairName
+      NetworkInterfaces:
+        - AssociatePublicIpAddress: true
+          DeviceIndex: '0'
+          GroupSet:
+            - !Ref WebServerSecurityGroup
+          SubnetId: !Ref PublicSubnet1
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            VolumeSize: 30
+            VolumeType: gp2
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash -xe
+          yum update -y
+          yum install -y amazon-linux-extras
+          amazon-linux-extras install docker -y
+          systemctl enable docker
+          systemctl start docker
+          yum install -y git jq amazon-cloudwatch-agent
+          curl -L "https://github.com/docker/compose/releases/download/v2.20.0/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+          chmod +x /usr/local/bin/docker-compose
+          
+          # Install certbot for SSL certificate
+          yum install -y certbot python3-certbot-nginx
+          
+          # Clone Planka repository
+          mkdir -p /opt/planka
+          cd /opt/planka
+          git clone https://github.com/plankanban/planka.git .
+          
+          # Get database credentials from Secrets Manager
+          DB_CREDS=$(aws secretsmanager get-secret-value --secret-id ${PlankaDBSecret} --query SecretString --output text)
+          DB_PASSWORD=$(echo $DB_CREDS | jq -r '.password')
+          
+          # Create docker-compose.yml
+          cat > /opt/planka/docker-compose.yml << 'EOL'
+          version: '3'
+
+          services:
+            planka:
+              image: ghcr.io/plankanban/planka:latest
+              container_name: planka
+              restart: always
+              ports:
+                - 80:1337
+              environment:
+                - BASE_URL=https://${DomainName}
+                - SECRET_KEY=$(openssl rand -hex 64)
+                - DATABASE_URL=postgresql://planka:$DB_PASSWORD@${PlankaDB.Endpoint.Address}:${PlankaDB.Endpoint.Port}/planka
+                - DATABASE_SSL=true
+                - TRUST_PROXY=1
+                - ADMIN_EMAIL=${AdminEmail}
+              volumes:
+                - /opt/planka/data:/app/public/user-avatars
+                - /opt/planka/data:/app/public/project-background-images
+                - /opt/planka/data:/app/private/attachments
+          EOL
+          
+          # Start Planka
+          cd /opt/planka
+          docker-compose up -d
+          
+          # Set up automatic certificate renewal with Certbot
+          certbot --nginx -d ${DomainName} --non-interactive --agree-tos -m ${AdminEmail} --redirect
+          
+          # Set up CloudWatch Agent
+          cat > /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json << 'EOL'
+          {
+            "agent": {
+              "metrics_collection_interval": 60,
+              "run_as_user": "root"
+            },
+            "logs": {
+              "logs_collected": {
+                "files": {
+                  "collect_list": [
+                    {
+                      "file_path": "/var/log/messages",
+                      "log_group_name": "${Environment}-planka-syslog",
+                      "log_stream_name": "{instance_id}"
+                    },
+                    {
+                      "file_path": "/var/log/docker",
+                      "log_group_name": "${Environment}-planka-docker",
+                      "log_stream_name": "{instance_id}"
+                    }
+                  ]
+                }
+              }
+            },
+            "metrics": {
+              "metrics_collected": {
+                "disk": {
+                  "measurement": ["used_percent"],
+                  "resources": ["*"]
+                },
+                "mem": {
+                  "measurement": ["mem_used_percent"]
+                }
+              }
+            }
+          }
+          EOL
+          
+          systemctl enable amazon-cloudwatch-agent
+          systemctl start amazon-cloudwatch-agent
+
+      Tags:
+        - Key: Name
+          Value: !Sub ${Environment}-planka-server
+
+  # Elastic IP for EC2
+  PlankaEIP:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+      InstanceId: !Ref PlankaEC2Instance
+
+  # Route 53 Records
+  PlankaRoute53Record:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneName: boxie.ai.  # Note the trailing dot
+      Name: !Ref DomainName
+      Type: A
+      TTL: 300
+      ResourceRecords:
+        - !Ref PlankaEIP
+
+Outputs:
+  PlankaURL:
+    Description: URL for Planka application
+    Value: !Sub https://${DomainName}
+    
+  PlankaEIP:
+    Description: Elastic IP address assigned to Planka server
+    Value: !Ref PlankaEIP
+    
+  DBEndpoint:
+    Description: Endpoint for the Planka database
+    Value: !GetAtt PlankaDB.Endpoint.Address
