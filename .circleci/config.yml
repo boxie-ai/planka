@@ -22,23 +22,20 @@ commands:
           command: |
             STACK_NAME="planka-<< parameters.environment >>"
 
-            ls -ah
-            pwd
-
             # Check if stack exists
             if aws cloudformation describe-stacks --stack-name $STACK_NAME > /dev/null 2>&1; then
               echo "Stack exists, updating..."
               aws cloudformation update-stack \
                 --stack-name $STACK_NAME \
-                --template-body file://../deploy-aws/template.yaml \
-                --parameters file://../deploy-aws/parameters-<< parameters.environment >>.json \
+                --template-body file://deploy-aws/template.yaml \
+                --parameters file://deploy-aws/parameters-<< parameters.environment >>.json \
                 --capabilities CAPABILITY_NAMED_IAM || echo "No updates to be performed"
             else
               echo "Stack does not exist, creating..."
               aws cloudformation create-stack \
                 --stack-name $STACK_NAME \
-                --template-body file://../deploy-aws/template.yaml \
-                --parameters file://../deploy-aws/parameters-<< parameters.environment >>.json \
+                --template-body file://deploy-aws/template.yaml \
+                --parameters file://deploy-aws/parameters-<< parameters.environment >>.json \
                 --capabilities CAPABILITY_NAMED_IAM
 
               aws cloudformation wait stack-create-complete --stack-name $STACK_NAME
