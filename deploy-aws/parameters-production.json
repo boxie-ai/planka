@@ -17,7 +17,7 @@
   },
   {
     "ParameterKey": "KeyPairName",
-    "ParameterValue": "planka-production-keypair"
+    "ParameterValue": "planka-prod"
   },
   {
     "ParameterKey": "SSHLocation",
