@@ -6,7 +6,7 @@ orbs:
 parameters:
   deploy_environment:
     type: enum
-    default: "staging"
+    default: "production"
     enum: ["production", "staging", "development"]
 
 commands:
@@ -47,6 +47,38 @@ commands:
               --query "Stacks[0].Outputs" \
               --output table
 
+  deploy-application:
+    description: "Deploy Planka application"
+    parameters:
+      environment:
+        type: string
+        default: << pipeline.parameters.deploy_environment >>
+    steps:
+      - run:
+          name: "Update Planka application"
+          command: |
+            # Make deploy script executable
+            chmod +x ../deploy-aws/scripts/update.sh
+            
+            # Get EC2 instance public IP
+            STACK_NAME="planka-<< parameters.environment >>"
+            INSTANCE_IP=$(aws cloudformation describe-stacks \
+              --stack-name $STACK_NAME \
+              --query "Stacks[0].Outputs[?OutputKey=='PlankaEIP'].OutputValue" \
+              --output text)
+            
+            # SSH into the instance and run update script
+            echo "Updating Planka application on $INSTANCE_IP..."
+            scp -o StrictHostKeyChecking=no ../deploy-aws/scripts/update.sh ec2-user@$INSTANCE_IP:/tmp/update.sh
+            ssh -o StrictHostKeyChecking=no ec2-user@$INSTANCE_IP "chmod +x /tmp/update.sh && /tmp/update.sh"
+            
+            echo "Application update completed!"
+            PLANKA_URL=$(aws cloudformation describe-stacks \
+              --stack-name $STACK_NAME \
+              --query "Stacks[0].Outputs[?OutputKey=='PlankaURL'].OutputValue" \
+              --output text)
+            echo "Planka is available at: $PLANKA_URL"
+
 jobs:
   deploy:
     docker:
@@ -56,6 +88,7 @@ jobs:
       - aws-cli/setup:
           profile-name: default
       - deploy-cloudformation-stack
+      - deploy-application
 
 workflows:
   version: 2
