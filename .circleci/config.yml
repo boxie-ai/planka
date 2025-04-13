@@ -58,7 +58,7 @@ commands:
           name: "Update Planka application"
           command: |
             # Make deploy script executable
-            chmod +x ../deploy-aws/scripts/update.sh
+            chmod +x deploy-aws/scripts/update.sh
 
             # Get EC2 instance public IP
             STACK_NAME="planka-<< parameters.environment >>"
@@ -69,7 +69,7 @@ commands:
 
             # SSH into the instance and run update script
             echo "Updating Planka application on $INSTANCE_IP..."
-            scp -o StrictHostKeyChecking=no ../deploy-aws/scripts/update.sh ec2-user@$INSTANCE_IP:/tmp/update.sh
+            scp -o StrictHostKeyChecking=no deploy-aws/scripts/update.sh ec2-user@$INSTANCE_IP:/tmp/update.sh
             ssh -o StrictHostKeyChecking=no ec2-user@$INSTANCE_IP "chmod +x /tmp/update.sh && /tmp/update.sh"
 
             echo "Application update completed!"
