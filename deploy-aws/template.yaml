@@ -1,5 +1,5 @@
-AWSTemplateFormatVersion: '2010-09-09'
-Description: 'CloudFormation template for Planka deployment'
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "CloudFormation template for Planka deployment"
 
 Parameters:
   Environment:
@@ -7,33 +7,33 @@ Parameters:
     Type: String
     Default: staging
     AllowedValues: [production, staging, development]
-  
+
   DomainName:
     Description: Domain name for Planka (e.g., boards.boxie.ai)
     Type: String
     Default: boards.boxie.ai
-  
+
   InstanceType:
     Description: EC2 instance type
     Type: String
     Default: t3.medium
     AllowedValues: [t3.small, t3.medium, t3.large]
-  
+
   DBInstanceType:
     Description: RDS instance type
     Type: String
     Default: db.t3.small
     AllowedValues: [db.t3.micro, db.t3.small, db.t3.medium]
-  
+
   KeyPairName:
     Description: EC2 Key Pair name
     Type: AWS::EC2::KeyPair::KeyName
-  
+
   SSHLocation:
     Description: IP address range that can SSH to the EC2 instance
     Type: String
     Default: 0.0.0.0/0
-    
+
   AdminEmail:
     Description: Admin email for Planka
     Type: String
@@ -68,7 +68,7 @@ Resources:
     Type: AWS::EC2::Subnet
     Properties:
       VpcId: !Ref VPC
-      AvailabilityZone: !Select [0, !GetAZs '']
+      AvailabilityZone: !Select [0, !GetAZs ""]
       CidrBlock: 10.0.1.0/24
       MapPublicIpOnLaunch: true
       Tags:
@@ -79,7 +79,7 @@ Resources:
     Type: AWS::EC2::Subnet
     Properties:
       VpcId: !Ref VPC
-      AvailabilityZone: !Select [1, !GetAZs '']
+      AvailabilityZone: !Select [1, !GetAZs ""]
       CidrBlock: 10.0.2.0/24
       MapPublicIpOnLaunch: true
       Tags:
@@ -90,7 +90,7 @@ Resources:
     Type: AWS::EC2::Subnet
     Properties:
       VpcId: !Ref VPC
-      AvailabilityZone: !Select [0, !GetAZs '']
+      AvailabilityZone: !Select [0, !GetAZs ""]
       CidrBlock: 10.0.3.0/24
       Tags:
         - Key: Name
@@ -100,7 +100,7 @@ Resources:
     Type: AWS::EC2::Subnet
     Properties:
       VpcId: !Ref VPC
-      AvailabilityZone: !Select [1, !GetAZs '']
+      AvailabilityZone: !Select [1, !GetAZs ""]
       CidrBlock: 10.0.4.0/24
       Tags:
         - Key: Name
@@ -179,12 +179,20 @@ Resources:
     Properties:
       DBName: planka
       Engine: postgres
-      EngineVersion: '14.8'
+      EngineVersion: "16.3"
       DBInstanceClass: !Ref DBInstanceType
       AllocatedStorage: 20
       StorageType: gp2
       MasterUsername: planka
-      MasterUserPassword: !Join ['', ['{{resolve:secretsmanager:', !Ref PlankaDBSecret, ':SecretString:password}}' ]]
+      MasterUserPassword:
+        !Join [
+          "",
+          [
+            "{{resolve:secretsmanager:",
+            !Ref PlankaDBSecret,
+            ":SecretString:password}}",
+          ],
+        ]
       VPCSecurityGroups:
         - !GetAtt DatabaseSecurityGroup.GroupId
       DBSubnetGroupName: !Ref DBSubnetGroup
@@ -212,11 +220,11 @@ Resources:
     DependsOn: PlankaDB
     Properties:
       InstanceType: !Ref InstanceType
-      ImageId: ami-0261755bbcb8c4a84  # Amazon Linux 2023 (adjust for your region)
+      ImageId: ami-0261755bbcb8c4a84 # Amazon Linux 2023 (adjust for your region)
       KeyName: !Ref KeyPairName
       NetworkInterfaces:
         - AssociatePublicIpAddress: true
-          DeviceIndex: '0'
+          DeviceIndex: "0"
           GroupSet:
             - !Ref WebServerSecurityGroup
           SubnetId: !Ref PublicSubnet1
@@ -236,19 +244,19 @@ Resources:
           yum install -y git jq amazon-cloudwatch-agent
           curl -L "https://github.com/docker/compose/releases/download/v2.20.0/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
           chmod +x /usr/local/bin/docker-compose
-          
+
           # Install certbot for SSL certificate
           yum install -y certbot python3-certbot-nginx
-          
+
           # Clone Planka repository
           mkdir -p /opt/planka
           cd /opt/planka
           git clone https://github.com/plankanban/planka.git .
-          
+
           # Get database credentials from Secrets Manager
           DB_CREDS=$(aws secretsmanager get-secret-value --secret-id ${PlankaDBSecret} --query SecretString --output text)
           DB_PASSWORD=$(echo $DB_CREDS | jq -r '.password')
-          
+
           # Create docker-compose.yml
           cat > /opt/planka/docker-compose.yml << 'EOL'
           version: '3'
@@ -272,14 +280,14 @@ Resources:
                 - /opt/planka/data:/app/public/project-background-images
                 - /opt/planka/data:/app/private/attachments
           EOL
-          
+
           # Start Planka
           cd /opt/planka
           docker-compose up -d
-          
+
           # Set up automatic certificate renewal with Certbot
           certbot --nginx -d ${DomainName} --non-interactive --agree-tos -m ${AdminEmail} --redirect
-          
+
           # Set up CloudWatch Agent
           cat > /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json << 'EOL'
           {
@@ -318,7 +326,7 @@ Resources:
             }
           }
           EOL
-          
+
           systemctl enable amazon-cloudwatch-agent
           systemctl start amazon-cloudwatch-agent
 
@@ -337,7 +345,7 @@ Resources:
   PlankaRoute53Record:
     Type: AWS::Route53::RecordSet
     Properties:
-      HostedZoneName: boxie.ai.  # Note the trailing dot
+      HostedZoneName: boxie.ai. # Note the trailing dot
       Name: !Ref DomainName
       Type: A
       TTL: 300
@@ -348,11 +356,11 @@ Outputs:
   PlankaURL:
     Description: URL for Planka application
     Value: !Sub https://${DomainName}
-    
+
   PlankaEIP:
     Description: Elastic IP address assigned to Planka server
     Value: !Ref PlankaEIP
-    
+
   DBEndpoint:
     Description: Endpoint for the Planka database
     Value: !GetAtt PlankaDB.Endpoint.Address
