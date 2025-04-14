@@ -220,7 +220,7 @@ Resources:
     DependsOn: PlankaDB
     Properties:
       InstanceType: !Ref InstanceType
-      ImageId: ami-0261755bbcb8c4a84 # Amazon Linux 2023 (adjust for your region)
+      ImageId: ami-0c15e602d3d6c6c4a
       KeyName: !Ref KeyPairName
       NetworkInterfaces:
         - AssociatePublicIpAddress: true
